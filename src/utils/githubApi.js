@@ -1,7 +1,34 @@
 import { Octokit } from '@octokit/rest';
 
 /**
- * Validate token and retrieve user & repository info
+ * Helper to delay execution (prevent secondary rate limits)
+ */
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Fetch GitHub API rate limit status for token
+ */
+export async function fetchRateLimit(rawToken) {
+  const token = (rawToken || '').trim();
+  if (!token) return null;
+
+  try {
+    const octokit = new Octokit({ auth: token });
+    const { data } = await octokit.rest.rateLimit.get();
+    const core = data.resources.core;
+    return {
+      limit: core.limit,
+      remaining: core.remaining,
+      reset: core.reset, // Unix timestamp (seconds)
+      resetDate: new Date(core.reset * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Validate token and retrieve user, repository & rate-limit info
  */
 export async function testGitHubToken(rawToken, rawOwner, rawRepo) {
   const token = (rawToken || '').trim();
@@ -26,7 +53,7 @@ export async function testGitHubToken(rawToken, rawOwner, rawRepo) {
         // scope missing or not granted
       }
     }
-    
+
     let repository = null;
     if (owner && repo) {
       try {
@@ -38,12 +65,14 @@ export async function testGitHubToken(rawToken, rawOwner, rawRepo) {
             success: false,
             username: user.login,
             email: primaryEmail,
-            error: `Repository '${owner}/${repo}' not found (404).\n\nCheck:\n1. Is the repository name spelled correctly? (e.g. 'git_cron_schedular')\n2. If the repository is Private, ensure your Personal Access Token has the 'repo' scope permission enabled!`
+            error: `Repository '${owner}/${repo}' not found (404).\n\nCheck:\n1. Is the repository name spelled correctly?\n2. If Private, ensure token has the 'repo' scope permission enabled!`
           };
         }
         throw repoErr;
       }
     }
+
+    const rateLimit = await fetchRateLimit(token);
 
     return {
       success: true,
@@ -51,7 +80,8 @@ export async function testGitHubToken(rawToken, rawOwner, rawRepo) {
       email: primaryEmail,
       avatarUrl: user.avatar_url,
       repository: repository ? repository.full_name : null,
-      defaultBranch: repository ? repository.default_branch : 'main'
+      defaultBranch: repository ? repository.default_branch : 'main',
+      rateLimit
     };
   } catch (err) {
     if (err.status === 401) {
@@ -66,6 +96,7 @@ export async function testGitHubToken(rawToken, rawOwner, rawRepo) {
 
 /**
  * Direct 1-Click Backdate Commit Executor via GitHub API
+ * Includes rate-limit throttling, exponential backoff, and resume capability
  */
 export async function executeDirectApiCommits({
   token: rawToken,
@@ -74,6 +105,7 @@ export async function executeDirectApiCommits({
   branch = 'main',
   authorEmail: rawAuthorEmail,
   commits,
+  startIndex = 0,
   onProgress
 }) {
   const token = (rawToken || '').trim();
@@ -84,15 +116,31 @@ export async function executeDirectApiCommits({
 
   const octokit = new Octokit({ auth: token });
 
+  // Expand commits matrix into individual commit items
+  const flatCommits = [];
+  commits.forEach((item) => {
+    for (let cIdx = 0; cIdx < item.count; cIdx++) {
+      flatCommits.push({
+        date: item.date,
+        commitNum: cIdx + 1,
+        dateIso: `${item.date}T12:00:00Z`
+      });
+    }
+  });
+
+  const totalCommitsToMake = flatCommits.length;
+
   onProgress({
-    current: 0,
-    total: commits.length,
-    message: '🚀 Initializing GitHub API connection...',
-    logs: ['Connecting to GitHub API...']
+    current: startIndex,
+    total: totalCommitsToMake,
+    message: startIndex > 0
+      ? `🔄 Resuming direct API commit sync from commit #${startIndex + 1}...`
+      : '🚀 Initializing GitHub API connection...',
+    logs: [startIndex > 0 ? `Resuming execution at commit ${startIndex + 1}/${totalCommitsToMake}` : 'Connecting to GitHub API...']
   });
 
   try {
-    // 1. Get HEAD commit of target branch
+    // 1. Fetch current HEAD of target branch
     const refRes = await octokit.rest.git.getRef({
       owner,
       repo,
@@ -109,8 +157,8 @@ export async function executeDirectApiCommits({
 
     const { data: user } = await octokit.rest.users.getAuthenticated();
     const committerName = user.name || user.login;
-    
-    // Resolve email
+
+    // Resolve author email
     let resolvedEmail = customAuthorEmail || user.email;
     if (!resolvedEmail) {
       try {
@@ -125,84 +173,115 @@ export async function executeDirectApiCommits({
       resolvedEmail = `${user.login}@users.noreply.github.com`;
     }
 
-    let totalCreated = 0;
-    const totalCommitsToMake = commits.reduce((a, b) => a + b.count, 0);
-
     onProgress({
-      current: 0,
+      current: startIndex,
       total: totalCommitsToMake,
-      message: `Target branch '${targetBranch}' ready (Commit Email: ${resolvedEmail}). Starting commit generation...`,
+      message: `Target branch '${targetBranch}' ready (Commit Email: ${resolvedEmail}). Executing commit sequence...`,
       logs: [
         `HEAD commit SHA: ${currentCommitSha.substring(0, 7)}`,
-        `Author Email: ${resolvedEmail}`
+        `Author Email: ${resolvedEmail}`,
+        `Total backdated commits queued: ${totalCommitsToMake}`
       ]
     });
 
     let currentLogText = `GitGraph Studio Direct API Sync\nStarted: ${new Date().toISOString()}\n\n`;
+    let totalCreated = startIndex;
 
-    // 2. Loop through each date
-    for (let dIdx = 0; dIdx < commits.length; dIdx++) {
-      const item = commits[dIdx];
-      const dateIso = `${item.date}T12:00:00Z`;
+    // 2. Loop through flat commits starting at startIndex
+    for (let i = startIndex; i < totalCommitsToMake; i++) {
+      const commitItem = flatCommits[i];
+      const dateIso = commitItem.dateIso;
 
-      for (let cIdx = 0; cIdx < item.count; cIdx++) {
-        totalCreated++;
+      currentLogText += `[${dateIso}] Direct API commit #${commitItem.commitNum} for ${commitItem.date} (${i + 1}/${totalCommitsToMake})\n`;
 
-        currentLogText += `[${dateIso}] Direct API commit #${cIdx + 1} for ${item.date}\n`;
+      // Smart Throttle Pacing (120ms delay per commit to stay within secondary rate limits)
+      if (i > startIndex) {
+        await sleep(120);
+      }
 
-        // Create Blob
-        const blobRes = await octokit.rest.git.createBlob({
-          owner,
-          repo,
-          content: currentLogText,
-          encoding: 'utf-8'
-        });
+      // Retry mechanism with exponential backoff on HTTP 403 / 429 Rate Limits
+      let attempts = 0;
+      const maxAttempts = 3;
+      let commitSuccess = false;
 
-        // Create Tree with updated activity log file
-        const treeRes = await octokit.rest.git.createTree({
-          owner,
-          repo,
-          base_tree: currentTreeSha,
-          tree: [
-            {
-              path: 'data/activity_log.txt',
-              mode: '100644',
-              type: 'blob',
-              sha: blobRes.data.sha
+      while (!commitSuccess && attempts < maxAttempts) {
+        try {
+          attempts++;
+
+          // Create Blob
+          const blobRes = await octokit.rest.git.createBlob({
+            owner,
+            repo,
+            content: currentLogText,
+            encoding: 'utf-8'
+          });
+
+          // Create Tree
+          const treeRes = await octokit.rest.git.createTree({
+            owner,
+            repo,
+            base_tree: currentTreeSha,
+            tree: [
+              {
+                path: 'data/activity_log.txt',
+                mode: '100644',
+                type: 'blob',
+                sha: blobRes.data.sha
+              }
+            ]
+          });
+
+          // Create Commit
+          const newCommitRes = await octokit.rest.git.createCommit({
+            owner,
+            repo,
+            message: `Activity backfill ${commitItem.date} (#${commitItem.commitNum}) [API]`,
+            tree: treeRes.data.sha,
+            parents: [currentCommitSha],
+            author: {
+              name: committerName,
+              email: resolvedEmail,
+              date: dateIso
+            },
+            committer: {
+              name: committerName,
+              email: resolvedEmail,
+              date: dateIso
             }
-          ]
-        });
+          });
 
-        // Create Commit with backdated author & committer timestamps
-        const newCommitRes = await octokit.rest.git.createCommit({
-          owner,
-          repo,
-          message: `Activity backfill ${item.date} (#${cIdx + 1}) [API]`,
-          tree: treeRes.data.sha,
-          parents: [currentCommitSha],
-          author: {
-            name: committerName,
-            email: resolvedEmail,
-            date: dateIso
-          },
-          committer: {
-            name: committerName,
-            email: resolvedEmail,
-            date: dateIso
+          currentCommitSha = newCommitRes.data.sha;
+          currentTreeSha = treeRes.data.sha;
+          totalCreated = i + 1;
+          commitSuccess = true;
+
+          onProgress({
+            current: totalCreated,
+            total: totalCommitsToMake,
+            message: `Creating commit for ${commitItem.date} (${totalCreated}/${totalCommitsToMake})...`,
+            logs: [
+              `Created commit ${currentCommitSha.substring(0, 7)} for date ${commitItem.date}`
+            ],
+            lastIndex: i
+          });
+        } catch (apiErr) {
+          const isRateLimit = apiErr.status === 403 || apiErr.status === 429 ||
+            (apiErr.message && apiErr.message.toLowerCase().includes('rate limit'));
+
+          if (isRateLimit && attempts < maxAttempts) {
+            const backoffMs = attempts * 3000;
+            onProgress({
+              current: totalCreated,
+              total: totalCommitsToMake,
+              message: `⚠️ Rate limit warning! Throttling and retrying in ${backoffMs / 1000}s (Attempt ${attempts}/${maxAttempts})...`,
+              logs: [`Rate limit hit at commit #${i + 1}. Retrying in ${backoffMs / 1000}s...`]
+            });
+            await sleep(backoffMs);
+          } else {
+            // Unhandled error or exhausted rate limit retries
+            throw apiErr;
           }
-        });
-
-        currentCommitSha = newCommitRes.data.sha;
-        currentTreeSha = treeRes.data.sha;
-
-        onProgress({
-          current: totalCreated,
-          total: totalCommitsToMake,
-          message: `Creating commit for ${item.date} (${totalCreated}/${totalCommitsToMake})...`,
-          logs: [
-            `Created commit ${currentCommitSha.substring(0, 7)} for date ${item.date}`
-          ]
-        });
+        }
       }
     }
 
@@ -222,33 +301,51 @@ export async function executeDirectApiCommits({
       force: true
     });
 
+    const finalRateLimit = await fetchRateLimit(token);
+
     onProgress({
       current: totalCommitsToMake,
       total: totalCommitsToMake,
       message: '✅ SUCCESS! All commits pushed directly to GitHub!',
       logs: [
         `🎉 Successfully created and pushed ${totalCommitsToMake} backdated commits directly to GitHub!`,
-        `💡 NOTE: If GitHub hasn't turned your graph green yet, verify:`,
-        `   1. Email: Make sure '${resolvedEmail}' is listed under your GitHub Settings -> Emails.`,
-        `   2. Private Repos: If this repo is Private, turn ON "Include private contributions" in your GitHub Profile settings.`,
-        `   3. Cache: GitHub contribution graph updates can take 5-10 minutes to re-index.`
+        `💡 Email registered: ${resolvedEmail}`,
+        `💡 GitHub contribution graph updates can take 5-10 minutes to re-index.`
       ],
-      completed: true
+      completed: true,
+      rateLimit: finalRateLimit
     });
 
     return { success: true, count: totalCommitsToMake };
   } catch (err) {
+    const isRateLimit = err.status === 403 || err.status === 429 ||
+      (err.message && err.message.toLowerCase().includes('rate limit'));
+
     const errorMsg = err.status === 404
-      ? `Repository '${owner}/${repo}' not found (404). If the repo is Private, make sure your token has the 'repo' scope permission!`
+      ? `Repository '${owner}/${repo}' not found (404). If the repo is Private, ensure your Personal Access Token has the 'repo' scope permission!`
       : err.message;
 
+    const rateLimit = await fetchRateLimit(token);
+
     onProgress({
-      current: 0,
-      total: 1,
-      message: `❌ API Error: ${errorMsg}`,
+      current: startIndex,
+      total: totalCommitsToMake,
+      message: isRateLimit
+        ? `🛑 API Rate Limit Exceeded: GitHub paused execution.`
+        : `❌ API Error: ${errorMsg}`,
       logs: [`Error: ${errorMsg}`],
-      error: true
+      error: true,
+      isRateLimit,
+      lastIndex: Math.max(0, startIndex),
+      rateLimit
     });
-    return { success: false, error: errorMsg };
+
+    return {
+      success: false,
+      error: errorMsg,
+      isRateLimit,
+      lastIndex: Math.max(0, startIndex),
+      rateLimit
+    };
   }
 }

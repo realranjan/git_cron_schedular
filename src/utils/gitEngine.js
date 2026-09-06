@@ -1,11 +1,15 @@
 /**
  * Script Generators for PowerShell, Bash, and JSON configuration
+ * Local CLI scripts execute using local Git binary and bypass GitHub REST API rate limits completely.
  */
 
 export function generatePowerShellScript(commits) {
-  let script = `# GitGraph Studio - Backdate PowerShell Script\n`;
-  script += `# Run this script in your Git repository root using PowerShell\n\n`;
-  script += `Write-Host "Starting Git Backdate process for ${commits.length} dates..." -ForegroundColor Green\n\n`;
+  let script = `# ==========================================================================\n`;
+  script += `# GitGraph Studio - Local PowerShell Backdate Script (Rate-Limit Free!)\n`;
+  script += `# Run this script in your Git repository root using PowerShell\n`;
+  script += `# Note: Executes local 'git commit' commands — ZERO GitHub API rate limits.\n`;
+  script += `# ==========================================================================\n\n`;
+  script += `Write-Host "🚀 Starting Git Backdate process for ${commits.length} dates..." -ForegroundColor Green\n\n`;
   script += `if (-not (Test-Path "data")) { New-Item -ItemType Directory -Path "data" }\n\n`;
 
   commits.forEach((c) => {
@@ -19,15 +23,18 @@ export function generatePowerShellScript(commits) {
     }
   });
 
-  script += `\nWrite-Host "Done! ${commits.reduce((a, b) => a + b.count, 0)} backdated commits created." -ForegroundColor Green\n`;
-  script += `Write-Host "Run 'git push origin main' to push to GitHub!" -ForegroundColor Yellow\n`;
+  script += `\nWrite-Host "🎉 Success! ${commits.reduce((a, b) => a + b.count, 0)} backdated commits created locally." -ForegroundColor Green\n`;
+  script += `Write-Host "Push to GitHub using: git push origin main" -ForegroundColor Yellow\n`;
   return script;
 }
 
 export function generateBashScript(commits) {
   let script = `#!/bin/bash\n`;
-  script += `# GitGraph Studio - Backdate Bash Script\n`;
-  script += `# Run in your terminal: bash backdate.sh\n\n`;
+  script += `# ==========================================================================\n`;
+  script += `# GitGraph Studio - Local Bash Backdate Script (Rate-Limit Free!)\n`;
+  script += `# Run in your repository root terminal: bash backdate.sh\n`;
+  script += `# Note: Executes local 'git commit' commands — ZERO GitHub API rate limits.\n`;
+  script += `# ==========================================================================\n\n`;
   script += `mkdir -p data\n\n`;
 
   commits.forEach((c) => {
@@ -39,7 +46,8 @@ export function generateBashScript(commits) {
     }
   });
 
-  script += `\necho "Done! Run 'git push origin main' to update GitHub!"\n`;
+  script += `\necho "🎉 Success! Created ${commits.reduce((a, b) => a + b.count, 0)} backdated commits locally."\n`;
+  script += `echo "Push to GitHub using: git push origin main"\n`;
   return script;
 }
 

@@ -1,14 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { generatePowerShellScript, generateBashScript, generateCommitsJson } from '../utils/gitEngine';
 import { extractCommitsFromMatrix } from '../utils/matrixUtils';
-import { testGitHubToken, executeDirectApiCommits } from '../utils/githubApi';
+import { testGitHubToken, executeDirectApiCommits, fetchRateLimit } from '../utils/githubApi';
 import {
   Download,
   Copy,
   Check,
-  Terminal,
   X,
-  Play,
   Key,
   ShieldCheck,
   Eye,
@@ -17,7 +15,12 @@ import {
   CheckCircle2,
   AlertCircle,
   HelpCircle,
-  Mail
+  Mail,
+  Gauge,
+  AlertTriangle,
+  RotateCcw,
+  Terminal,
+  Play
 } from 'lucide-react';
 
 export default function ExecutionModal({ matrix, isOpen, onClose }) {
@@ -37,18 +40,23 @@ export default function ExecutionModal({ matrix, isOpen, onClose }) {
   const [branch, setBranch] = useState(() => localStorage.getItem('gh_branch') || 'main');
   const [authorEmail, setAuthorEmail] = useState(() => localStorage.getItem('gh_email') || '');
   const [showToken, setShowToken] = useState(false);
-  const [remember, setRemember] = useState(true);
+  const [remember] = useState(true);
   const [showTroubleshoot, setShowTroubleshoot] = useState(false);
 
-  // Verification & Execution state
+  // Rate Limit & Verification state
   const [verifying, setVerifying] = useState(false);
   const [verifyStatus, setVerifyStatus] = useState(null);
+  const [rateLimitInfo, setRateLimitInfo] = useState(null);
+
+  // Execution state
   const [executing, setExecuting] = useState(false);
   const [progress, setProgress] = useState(null);
   const [logs, setLogs] = useState([]);
+  const [resumeIndex, setResumeIndex] = useState(0);
 
   const commits = extractCommitsFromMatrix(matrix);
   const totalCommits = commits.reduce((a, b) => a + b.count, 0);
+  const requiredApiRequests = totalCommits * 3 + 2;
 
   useEffect(() => {
     if (remember) {
@@ -59,6 +67,15 @@ export default function ExecutionModal({ matrix, isOpen, onClose }) {
       if (authorEmail) localStorage.setItem('gh_email', authorEmail);
     }
   }, [token, owner, repo, branch, authorEmail, remember]);
+
+  // Periodically update rate limit status if token exists
+  useEffect(() => {
+    if (token && isOpen) {
+      fetchRateLimit(token).then((info) => {
+        if (info) setRateLimitInfo(info);
+      });
+    }
+  }, [token, isOpen]);
 
   if (!isOpen) return null;
 
@@ -104,19 +121,22 @@ export default function ExecutionModal({ matrix, isOpen, onClose }) {
     const res = await testGitHubToken(token, owner, repo);
     setVerifying(false);
     setVerifyStatus(res);
+    if (res.rateLimit) {
+      setRateLimitInfo(res.rateLimit);
+    }
     if (res.success && res.email && !authorEmail) {
       setAuthorEmail(res.email);
     }
   };
 
-  const handleDirectPush = async () => {
+  const handleDirectPush = async (startIndex = 0) => {
     if (!token || !owner || !repo) {
       alert('Please enter your GitHub Personal Access Token, Repository Owner, and Repo Name.');
       return;
     }
 
     setExecuting(true);
-    setLogs([]);
+    if (startIndex === 0) setLogs([]);
 
     const res = await executeDirectApiCommits({
       token,
@@ -125,14 +145,22 @@ export default function ExecutionModal({ matrix, isOpen, onClose }) {
       branch,
       authorEmail,
       commits,
+      startIndex,
       onProgress: (p) => {
         setProgress(p);
+        if (p.lastIndex !== undefined) {
+          setResumeIndex(p.lastIndex);
+        }
+        if (p.rateLimit) {
+          setRateLimitInfo(p.rateLimit);
+        }
         if (p.logs && p.logs.length > 0) {
           setLogs(prev => [...prev, ...p.logs]);
         }
       }
     });
 
+    if (res.rateLimit) setRateLimitInfo(res.rateLimit);
     setExecuting(false);
   };
 
@@ -143,7 +171,7 @@ export default function ExecutionModal({ matrix, isOpen, onClose }) {
       left: 0,
       right: 0,
       bottom: 0,
-      backgroundColor: 'rgba(0, 0, 0, 0.82)',
+      backgroundColor: 'rgba(0, 0, 0, 0.85)',
       backdropFilter: 'blur(12px)',
       display: 'flex',
       alignItems: 'center',
@@ -151,7 +179,7 @@ export default function ExecutionModal({ matrix, isOpen, onClose }) {
       zIndex: 1000,
       padding: '1rem'
     }}>
-      <div className="panel-card" style={{ width: '100%', maxWidth: '820px', maxHeight: '92vh', overflowY: 'auto' }}>
+      <div className="panel-card" style={{ width: '100%', maxWidth: '840px', maxHeight: '92vh', overflowY: 'auto' }}>
         <div className="panel-title">
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
             <Zap size={22} style={{ color: 'var(--gh-level-4)' }} />
@@ -173,37 +201,57 @@ export default function ExecutionModal({ matrix, isOpen, onClose }) {
             onClick={() => setActiveTab('direct')}
           >
             <Key size={14} style={{ display: 'inline', marginRight: '6px' }} />
-            Direct 1-Click Push (GitHub Token)
+            Direct 1-Click Push (API)
           </button>
           <button
             className={`tab-btn ${activeTab === 'ps1' ? 'active' : ''}`}
             onClick={() => setActiveTab('ps1')}
           >
-            PowerShell (.ps1)
+            PowerShell (.ps1) <span style={{ fontSize: '0.7rem', opacity: 0.8, color: 'var(--gh-level-4)' }}>[No API Limits]</span>
           </button>
           <button
             className={`tab-btn ${activeTab === 'sh' ? 'active' : ''}`}
             onClick={() => setActiveTab('sh')}
           >
-            Bash Script (.sh)
+            Bash Script (.sh) <span style={{ fontSize: '0.7rem', opacity: 0.8, color: 'var(--gh-level-4)' }}>[No API Limits]</span>
           </button>
           <button
             className={`tab-btn ${activeTab === 'json' ? 'active' : ''}`}
             onClick={() => setActiveTab('json')}
           >
-            JSON Config (Node.js)
+            JSON Config
           </button>
         </div>
 
         {/* Tab 1: Direct GitHub Token Push */}
         {activeTab === 'direct' && (
           <div>
-            <div style={{ background: 'rgba(52, 211, 153, 0.08)', border: '1px solid rgba(52, 211, 153, 0.25)', padding: '0.85rem 1rem', borderRadius: '10px', marginBottom: '1.25rem', fontSize: '0.825rem', display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-              <ShieldCheck size={20} style={{ color: 'var(--gh-level-4)', flexShrink: 0 }} />
-              <div>
-                <strong>Direct API Execution</strong>: Commit backdated activity directly from the browser!
+            {/* Header Banner */}
+            <div style={{ background: 'rgba(52, 211, 153, 0.08)', border: '1px solid rgba(52, 211, 153, 0.25)', padding: '0.85rem 1rem', borderRadius: '10px', marginBottom: '1rem', fontSize: '0.825rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                <ShieldCheck size={20} style={{ color: 'var(--gh-level-4)', flexShrink: 0 }} />
+                <div>
+                  <strong>Direct API Execution</strong>: Commit backdated activity directly from the browser.
+                </div>
               </div>
+
+              {rateLimitInfo && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.75rem', background: '#030712', padding: '0.3rem 0.6rem', borderRadius: '6px', border: '1px solid var(--border-color)' }}>
+                  <Gauge size={14} style={{ color: 'var(--gh-level-4)' }} />
+                  <span>Quota: <strong style={{ color: rateLimitInfo.remaining < requiredApiRequests ? '#f85149' : 'var(--gh-level-4)' }}>{rateLimitInfo.remaining}</strong> / {rateLimitInfo.limit}</span>
+                </div>
+              )}
             </div>
+
+            {/* High Volume Rate Limit Warning Callout */}
+            {totalCommits > 40 && (
+              <div style={{ background: 'rgba(234, 179, 8, 0.1)', border: '1px solid rgba(234, 179, 8, 0.3)', padding: '0.75rem 1rem', borderRadius: '8px', marginBottom: '1rem', fontSize: '0.8rem', color: '#eab308', display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                <AlertTriangle size={18} style={{ flexShrink: 0 }} />
+                <div>
+                  <strong>Large Commit Volume ({totalCommits} commits = ~{requiredApiRequests} API calls)</strong>: GitHub REST API rate limits can be triggered by rapid consecutive calls. For large backfills, we recommend using the <strong>PowerShell (.ps1)</strong> or <strong>Bash (.sh)</strong> tab which run locally with zero API limits.
+                </div>
+              </div>
+            )}
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
               <div className="form-group">
@@ -326,11 +374,40 @@ export default function ExecutionModal({ matrix, isOpen, onClose }) {
               </div>
             )}
 
+            {/* Dedicated Rate Limit Exceeded Error Box with Fallback Options */}
+            {progress?.isRateLimit && (
+              <div style={{ background: 'rgba(239, 68, 68, 0.12)', border: '1px solid rgba(239, 68, 68, 0.4)', borderRadius: '10px', padding: '1rem', marginBottom: '1.25rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#f85149', fontWeight: 700, marginBottom: '0.5rem', fontSize: '0.9rem' }}>
+                  <AlertCircle size={20} /> GitHub API Rate Limit Exceeded
+                </div>
+                <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.75rem', lineHeight: '1.4' }}>
+                  GitHub has temporarily throttled API requests for your token/IP. You can seamlessly switch to a local CLI script (PowerShell/Bash) which uses local Git commands with zero API rate limits, or resume execution once the rate limit resets ({rateLimitInfo?.resetDate || 'in a few minutes'}).
+                </p>
+                <div style={{ display: 'flex', gap: '0.75rem' }}>
+                  <button
+                    className="btn btn-primary glow-active"
+                    style={{ flex: 1, padding: '0.5rem 0.75rem', fontSize: '0.8rem' }}
+                    onClick={() => setActiveTab('ps1')}
+                  >
+                    <Terminal size={15} /> Switch to PowerShell / Bash Script (Recommended)
+                  </button>
+                  <button
+                    className="btn btn-outline"
+                    style={{ padding: '0.5rem 0.75rem', fontSize: '0.8rem' }}
+                    onClick={() => handleDirectPush(resumeIndex)}
+                    disabled={executing}
+                  >
+                    <RotateCcw size={15} /> Resume from Commit #{resumeIndex + 1}
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* Execution Controls */}
             <button
               className="btn btn-primary glow-active"
               style={{ width: '100%', padding: '0.75rem', fontSize: '0.95rem' }}
-              onClick={handleDirectPush}
+              onClick={() => handleDirectPush(0)}
               disabled={executing || !token || !owner || !repo || totalCommits === 0}
             >
               <Zap size={18} /> {executing ? 'Pushing Commits...' : `🚀 Direct Push ${totalCommits} Commits to GitHub`}
@@ -347,7 +424,7 @@ export default function ExecutionModal({ matrix, isOpen, onClose }) {
                   <div style={{
                     height: '100%',
                     width: `${Math.round((progress.current / Math.max(1, progress.total)) * 100)}%`,
-                    background: 'linear-gradient(90deg, var(--gh-level-2), var(--gh-level-4))',
+                    background: progress.error ? '#f85149' : 'linear-gradient(90deg, var(--gh-level-2), var(--gh-level-4))',
                     transition: 'width 0.15s ease'
                   }} />
                 </div>
@@ -365,6 +442,13 @@ export default function ExecutionModal({ matrix, isOpen, onClose }) {
         {/* Tabs 2, 3, 4: Code Scripts */}
         {activeTab !== 'direct' && (
           <div>
+            <div style={{ background: 'rgba(52, 211, 153, 0.08)', border: '1px solid rgba(52, 211, 153, 0.25)', padding: '0.75rem 1rem', borderRadius: '8px', marginBottom: '1rem', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+              <ShieldCheck size={18} style={{ color: 'var(--gh-level-4)', flexShrink: 0 }} />
+              <div>
+                <strong>Rate-Limit-Free Execution</strong>: Local scripts execute standard <code>git commit</code> commands in your shell. Bypasses all GitHub REST API rate limits!
+              </div>
+            </div>
+
             <div style={{ position: 'relative', marginBottom: '1.25rem' }}>
               <div className="code-box" style={{ maxHeight: '300px' }}>
                 <pre>{getActiveContent()}</pre>
@@ -387,14 +471,14 @@ export default function ExecutionModal({ matrix, isOpen, onClose }) {
               {activeTab === 'ps1' && (
                 <ol style={{ marginLeft: '1.2rem', color: 'var(--text-muted)' }}>
                   <li>Save script as <code>backdate.ps1</code> in your repo root.</li>
-                  <li>Run: <code>.\backdate.ps1</code></li>
+                  <li>Run in PowerShell: <code>.\backdate.ps1</code></li>
                   <li>Push to GitHub: <code>git push origin main</code></li>
                 </ol>
               )}
               {activeTab === 'sh' && (
                 <ol style={{ marginLeft: '1.2rem', color: 'var(--text-muted)' }}>
                   <li>Save script as <code>backdate.sh</code> in your repo root.</li>
-                  <li>Run: <code>bash backdate.sh</code></li>
+                  <li>Run in Terminal: <code>bash backdate.sh</code></li>
                   <li>Push to GitHub: <code>git push origin main</code></li>
                 </ol>
               )}
