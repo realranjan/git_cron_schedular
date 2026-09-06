@@ -3,15 +3,34 @@ import { Octokit } from '@octokit/rest';
 /**
  * Validate token and retrieve user & repository info
  */
-export async function testGitHubToken(token, owner, repo) {
+export async function testGitHubToken(rawToken, rawOwner, rawRepo) {
+  const token = (rawToken || '').trim();
+  const owner = (rawOwner || '').trim();
+  const repo = (rawRepo || '').trim();
+
+  if (!token) {
+    return { success: false, error: 'Personal Access Token cannot be empty.' };
+  }
+
   try {
     const octokit = new Octokit({ auth: token });
     const { data: user } = await octokit.rest.users.getAuthenticated();
     
     let repository = null;
     if (owner && repo) {
-      const res = await octokit.rest.repos.get({ owner, repo });
-      repository = res.data;
+      try {
+        const res = await octokit.rest.repos.get({ owner, repo });
+        repository = res.data;
+      } catch (repoErr) {
+        if (repoErr.status === 404) {
+          return {
+            success: false,
+            username: user.login,
+            error: `Repository '${owner}/${repo}' not found (404).\n\nCheck:\n1. Is the repository name spelled correctly? (e.g. 'git_crron_schedular')\n2. If the repository is Private, ensure your Personal Access Token has the 'repo' scope permission enabled!`
+          };
+        }
+        throw repoErr;
+      }
     }
 
     return {
@@ -22,6 +41,9 @@ export async function testGitHubToken(token, owner, repo) {
       defaultBranch: repository ? repository.default_branch : 'main'
     };
   } catch (err) {
+    if (err.status === 401) {
+      return { success: false, error: 'Unauthorized (401): Invalid Personal Access Token.' };
+    }
     return {
       success: false,
       error: err.message || 'Invalid Personal Access Token or repository access denied.'
@@ -33,13 +55,18 @@ export async function testGitHubToken(token, owner, repo) {
  * Direct 1-Click Backdate Commit Executor via GitHub API
  */
 export async function executeDirectApiCommits({
-  token,
-  owner,
-  repo,
+  token: rawToken,
+  owner: rawOwner,
+  repo: rawRepo,
   branch = 'main',
   commits,
   onProgress
 }) {
+  const token = (rawToken || '').trim();
+  const owner = (rawOwner || '').trim();
+  const repo = (rawRepo || '').trim();
+  const targetBranch = (branch || 'main').trim();
+
   const octokit = new Octokit({ auth: token });
 
   onProgress({
@@ -54,7 +81,7 @@ export async function executeDirectApiCommits({
     const refRes = await octokit.rest.git.getRef({
       owner,
       repo,
-      ref: `heads/${branch}`
+      ref: `heads/${targetBranch}`
     });
     let currentCommitSha = refRes.data.object.sha;
 
@@ -75,7 +102,7 @@ export async function executeDirectApiCommits({
     onProgress({
       current: 0,
       total: totalCommitsToMake,
-      message: `Target branch '${branch}' ready. Starting commit generation...`,
+      message: `Target branch '${targetBranch}' ready. Starting commit generation...`,
       logs: [`HEAD commit SHA: ${currentCommitSha.substring(0, 7)}`]
     });
 
@@ -152,13 +179,13 @@ export async function executeDirectApiCommits({
       current: totalCommitsToMake,
       total: totalCommitsToMake,
       message: 'Updating GitHub branch reference...',
-      logs: [`Updating refs/heads/${branch} -> ${currentCommitSha.substring(0, 7)}`]
+      logs: [`Updating refs/heads/${targetBranch} -> ${currentCommitSha.substring(0, 7)}`]
     });
 
     await octokit.rest.git.updateRef({
       owner,
       repo,
-      ref: `heads/${branch}`,
+      ref: `heads/${targetBranch}`,
       sha: currentCommitSha,
       force: true
     });
@@ -175,13 +202,17 @@ export async function executeDirectApiCommits({
 
     return { success: true, count: totalCommitsToMake };
   } catch (err) {
+    const errorMsg = err.status === 404
+      ? `Repository '${owner}/${repo}' not found (404). If the repo is Private, make sure your token has the 'repo' scope permission!`
+      : err.message;
+
     onProgress({
       current: 0,
       total: 1,
-      message: `❌ API Error: ${err.message}`,
-      logs: [`Error: ${err.message}`],
+      message: `❌ API Error: ${errorMsg}`,
+      logs: [`Error: ${errorMsg}`],
       error: true
     });
-    return { success: false, error: err.message };
+    return { success: false, error: errorMsg };
   }
 }
