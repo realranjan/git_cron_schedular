@@ -275,6 +275,38 @@ export function extractCommitsFromMatrix(matrix) {
   return commits;
 }
 
+// Batch apply level to specific date range and filters
+export function applyDateRangeFilter(matrix, { startDate, endDate, daysOfWeek = [], targetLevel = 4, mode = 'set' }) {
+  const newMatrix = JSON.parse(JSON.stringify(matrix));
+  const start = startDate ? new Date(startDate) : null;
+  const end = endDate ? new Date(endDate) : null;
+
+  newMatrix.forEach(week => {
+    week.forEach(cell => {
+      if (cell.isFuture) return;
+      const cellDate = new Date(cell.dateString);
+      
+      const isAfterStart = !start || cellDate >= start;
+      const isBeforeEnd = !end || cellDate <= end;
+      
+      const dayNum = cellDate.getDay(); // 0 = Sun, 1 = Mon, ..., 6 = Sat
+      const matchesDay = daysOfWeek.length === 0 || daysOfWeek.includes(dayNum);
+
+      if (isAfterStart && isBeforeEnd && matchesDay) {
+        if (mode === 'clear') {
+          cell.level = 0;
+        } else if (mode === 'random') {
+          cell.level = Math.floor(Math.random() * 4) + 1;
+        } else {
+          cell.level = targetLevel;
+        }
+      }
+    });
+  });
+
+  return newMatrix;
+}
+
 // Preset Generator: Spell Text on Canvas
 export function renderTextOnMatrix(matrix, text, targetLevel = 4) {
   const newMatrix = JSON.parse(JSON.stringify(matrix));
@@ -313,7 +345,6 @@ export function applyPresetPattern(matrix, presetType, level = 4) {
   newMatrix.forEach(week => week.forEach(cell => cell.level = 0));
 
   if (presetType === 'heart') {
-    // Render repeat heart shapes across the graph
     const heartGrid = [
       [0,1,1,0,1,1,0],
       [1,1,1,1,1,1,1],
@@ -352,11 +383,9 @@ export function applyPresetPattern(matrix, presetType, level = 4) {
       }
     }
   } else if (presetType === 'full-backfill') {
-    // Fill every past date with realistic random levels (1-4)
     newMatrix.forEach(week => {
       week.forEach(cell => {
         if (!cell.isFuture) {
-          // 80% chance of commit, random level 1 to 4
           if (Math.random() > 0.2) {
             cell.level = Math.floor(Math.random() * 4) + 1;
           }
@@ -364,7 +393,6 @@ export function applyPresetPattern(matrix, presetType, level = 4) {
       });
     });
   } else if (presetType === 'streak-master') {
-    // Fill every single day with level 3 or 4
     newMatrix.forEach(week => {
       week.forEach(cell => {
         if (!cell.isFuture) {

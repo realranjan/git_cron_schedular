@@ -1,13 +1,40 @@
 import React, { useState } from 'react';
-import { getMonthLabels, extractCommitsFromMatrix } from '../utils/matrixUtils';
-import { Eraser, Paintbrush, RotateCcw, Sparkles, Shuffle, Repeat } from 'lucide-react';
+import { getMonthLabels, extractCommitsFromMatrix, applyDateRangeFilter } from '../utils/matrixUtils';
+import {
+  Eraser,
+  Paintbrush,
+  RotateCcw,
+  Sparkles,
+  Shuffle,
+  Repeat,
+  Calendar,
+  Search,
+  CheckSquare,
+  SlidersHorizontal
+} from 'lucide-react';
 
 export default function ContributionCanvas({ matrix, setMatrix, activeLevel, setActiveLevel }) {
   const [isMouseDown, setIsMouseDown] = useState(false);
   const [hoveredCell, setHoveredCell] = useState(null);
 
+  // Date Range & Filter States
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [selectedDays, setSelectedDays] = useState([0, 1, 2, 3, 4, 5, 6]); // 0=Sun, 6=Sat
+  const [searchQuery, setSearchQuery] = useState('');
+  const [showFilterPanel, setShowFilterPanel] = useState(false);
+
   const monthLabels = getMonthLabels(matrix);
   const dayNames = ['', 'Mon', '', 'Wed', '', 'Fri', ''];
+  const dayOptions = [
+    { label: 'Sun', value: 0 },
+    { label: 'Mon', value: 1 },
+    { label: 'Tue', value: 2 },
+    { label: 'Wed', value: 3 },
+    { label: 'Thu', value: 4 },
+    { label: 'Fri', value: 5 },
+    { label: 'Sat', value: 6 }
+  ];
 
   const handleCellMouseDown = (weekIndex, dayIndex) => {
     setIsMouseDown(true);
@@ -78,17 +105,73 @@ export default function ContributionCanvas({ matrix, setMatrix, activeLevel, set
     });
   };
 
+  // Date Range Quick Preset Handlers
+  const handleQuickPreset = (type) => {
+    const today = new Date();
+    const todayStr = today.toISOString().split('T')[0];
+
+    if (type === 'last30') {
+      const past30 = new Date(today);
+      past30.setDate(today.getDate() - 30);
+      setStartDate(past30.toISOString().split('T')[0]);
+      setEndDate(todayStr);
+      setSelectedDays([0, 1, 2, 3, 4, 5, 6]);
+    } else if (type === 'last90') {
+      const past90 = new Date(today);
+      past90.setDate(today.getDate() - 90);
+      setStartDate(past90.toISOString().split('T')[0]);
+      setEndDate(todayStr);
+      setSelectedDays([0, 1, 2, 3, 4, 5, 6]);
+    } else if (type === 'weekdays') {
+      setSelectedDays([1, 2, 3, 4, 5]);
+    } else if (type === 'weekends') {
+      setSelectedDays([0, 6]);
+    } else if (type === 'reset') {
+      setStartDate('');
+      setEndDate('');
+      setSelectedDays([0, 1, 2, 3, 4, 5, 6]);
+      setSearchQuery('');
+    }
+  };
+
+  // Apply Batch Action on Selected Range
+  const handleApplyRangeBatch = (mode) => {
+    setMatrix(prev => applyDateRangeFilter(prev, {
+      startDate,
+      endDate,
+      daysOfWeek: selectedDays,
+      targetLevel: activeLevel,
+      mode
+    }));
+  };
+
+  const toggleDayFilter = (dayValue) => {
+    setSelectedDays(prev =>
+      prev.includes(dayValue)
+        ? prev.filter(d => d !== dayValue)
+        : [...prev, dayValue]
+    );
+  };
+
   const commits = extractCommitsFromMatrix(matrix);
-  const totalCommits = commits.reduce((sum, c) => sum + c.count, 0);
 
   return (
     <div className="panel-card" onMouseUp={handleMouseUp} onMouseLeave={handleMouseUp}>
+      {/* Header & Quick Action Buttons */}
       <div className="panel-title">
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
           <Paintbrush size={22} style={{ color: 'var(--gh-level-4)' }} />
           <span>Contribution Matrix Editor</span>
         </div>
+
         <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+          <button
+            className={`btn ${showFilterPanel ? 'btn-primary' : 'btn-outline'}`}
+            style={{ padding: '0.4rem 0.75rem', fontSize: '0.75rem' }}
+            onClick={() => setShowFilterPanel(!showFilterPanel)}
+          >
+            <SlidersHorizontal size={13} /> Date Range & Filters
+          </button>
           <button className="btn btn-outline" style={{ padding: '0.4rem 0.75rem', fontSize: '0.75rem' }} onClick={invertCanvas} title="Invert graph colors">
             <Repeat size={13} /> Invert
           </button>
@@ -99,10 +182,100 @@ export default function ContributionCanvas({ matrix, setMatrix, activeLevel, set
             <RotateCcw size={13} /> Clear
           </button>
           <button className="btn btn-secondary" style={{ padding: '0.4rem 0.75rem', fontSize: '0.75rem' }} onClick={() => fillCanvas(activeLevel)} title="Fill entire grid">
-            <Sparkles size={13} /> Fill
+            <Sparkles size={13} /> Fill Grid
           </button>
         </div>
       </div>
+
+      {/* Date Range & Filter Expansion Panel */}
+      {showFilterPanel && (
+        <div style={{
+          background: 'rgba(3, 7, 18, 0.75)',
+          border: '1px solid var(--border-color)',
+          borderRadius: '10px',
+          padding: '1rem',
+          marginBottom: '1.25rem'
+        }}>
+          <div style={{ fontWeight: 700, fontSize: '0.85rem', color: 'var(--gh-level-4)', marginBottom: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+            <Calendar size={16} /> Filter Commits by Date Range & Days of Week
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1rem', marginBottom: '1rem' }}>
+            <div className="form-group" style={{ margin: 0 }}>
+              <label className="form-label" style={{ fontSize: '0.75rem' }}>From Date</label>
+              <input
+                type="date"
+                className="form-input"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+              />
+            </div>
+
+            <div className="form-group" style={{ margin: 0 }}>
+              <label className="form-label" style={{ fontSize: '0.75rem' }}>Till Date</label>
+              <input
+                type="date"
+                className="form-input"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+              />
+            </div>
+
+            <div className="form-group" style={{ margin: 0 }}>
+              <label className="form-label" style={{ fontSize: '0.75rem' }}>Search Specific Date / Text</label>
+              <div style={{ position: 'relative' }}>
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="e.g. 2025-05-15 or May"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                />
+                <Search size={14} style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+              </div>
+            </div>
+          </div>
+
+          {/* Quick Presets & Day Checkboxes */}
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem', marginBottom: '1rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>Presets:</span>
+              <button className="btn btn-outline" style={{ padding: '0.25rem 0.5rem', fontSize: '0.7rem' }} onClick={() => handleQuickPreset('last30')}>Last 30 Days</button>
+              <button className="btn btn-outline" style={{ padding: '0.25rem 0.5rem', fontSize: '0.7rem' }} onClick={() => handleQuickPreset('last90')}>Last 90 Days</button>
+              <button className="btn btn-outline" style={{ padding: '0.25rem 0.5rem', fontSize: '0.7rem' }} onClick={() => handleQuickPreset('weekdays')}>Weekdays Only</button>
+              <button className="btn btn-outline" style={{ padding: '0.25rem 0.5rem', fontSize: '0.7rem' }} onClick={() => handleQuickPreset('weekends')}>Weekends Only</button>
+              <button className="btn btn-outline" style={{ padding: '0.25rem 0.5rem', fontSize: '0.7rem' }} onClick={() => handleQuickPreset('reset')}>Reset Filters</button>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+              {dayOptions.map(day => (
+                <label key={day.value} style={{ fontSize: '0.7rem', display: 'flex', alignItems: 'center', gap: '2px', cursor: 'pointer', color: selectedDays.includes(day.value) ? 'var(--gh-level-4)' : 'var(--text-dim)' }}>
+                  <input
+                    type="checkbox"
+                    checked={selectedDays.includes(day.value)}
+                    onChange={() => toggleDayFilter(day.value)}
+                    style={{ cursor: 'pointer' }}
+                  />
+                  {day.label}
+                </label>
+              ))}
+            </div>
+          </div>
+
+          {/* Batch Range Execution Actions */}
+          <div style={{ display: 'flex', gap: '0.5rem', borderTop: '1px dashed var(--border-color)', paddingTop: '0.75rem' }}>
+            <button className="btn btn-primary" style={{ padding: '0.4rem 0.75rem', fontSize: '0.75rem' }} onClick={() => handleApplyRangeBatch('set')}>
+              <CheckSquare size={13} /> Paint Level {activeLevel} on Filtered Range
+            </button>
+            <button className="btn btn-secondary" style={{ padding: '0.4rem 0.75rem', fontSize: '0.75rem' }} onClick={() => handleApplyRangeBatch('random')}>
+              <Shuffle size={13} /> Randomize Filtered Range
+            </button>
+            <button className="btn btn-danger" style={{ padding: '0.4rem 0.75rem', fontSize: '0.75rem' }} onClick={() => handleApplyRangeBatch('clear')}>
+              <Eraser size={13} /> Clear Filtered Range
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Main Canvas Scroll Area */}
       <div className="graph-wrapper">
@@ -132,15 +305,23 @@ export default function ContributionCanvas({ matrix, setMatrix, activeLevel, set
 
           <div className="graph-matrix">
             {matrix.map((week, wIdx) =>
-              week.map((cell, dIdx) => (
-                <div
-                  key={`${wIdx}-${dIdx}`}
-                  className={`cell level-${cell.level} ${cell.isFuture ? 'future-cell' : ''}`}
-                  onMouseDown={() => handleCellMouseDown(wIdx, dIdx)}
-                  onMouseEnter={() => handleCellMouseEnter(wIdx, dIdx, cell)}
-                  style={{ opacity: cell.isFuture ? 0.15 : 1 }}
-                />
-              ))
+              week.map((cell, dIdx) => {
+                const isMatchedBySearch = searchQuery && cell.dateString.includes(searchQuery);
+                return (
+                  <div
+                    key={`${wIdx}-${dIdx}`}
+                    className={`cell level-${cell.level} ${cell.isFuture ? 'future-cell' : ''}`}
+                    onMouseDown={() => handleCellMouseDown(wIdx, dIdx)}
+                    onMouseEnter={() => handleCellMouseEnter(wIdx, dIdx, cell)}
+                    style={{
+                      opacity: cell.isFuture ? 0.15 : 1,
+                      outline: isMatchedBySearch ? '2px solid #38bdf8' : 'none',
+                      transform: isMatchedBySearch ? 'scale(1.3)' : undefined,
+                      zIndex: isMatchedBySearch ? 20 : undefined
+                    }}
+                  />
+                );
+              })
             )}
           </div>
         </div>
