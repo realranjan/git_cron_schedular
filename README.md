@@ -16,6 +16,75 @@
 
 ---
 
+## 🏗️ System Architecture
+
+GitGraph Studio operates on a **Zero-Server, Client-First Serverless Architecture**. Sensitive credentials (Personal Access Tokens) never touch a third-party backend and remain strictly inside the user's browser runtime.
+
+```mermaid
+flowchart TD
+    subgraph Client ["💻 Client Browser (Vercel SPA Hosting)"]
+        UI["React 18 Component UI"]
+        MatrixEngine["Matrix Math & Date Engine (52x7 Grid)"]
+        PresetGen["Pixel Font & Art Generators"]
+        DateFilter["Yearly & Date Range Filter Panel"]
+        LocalStore["Browser LocalStorage (Encrypted Token Storage)"]
+    end
+
+    subgraph GitHubAPI ["🐙 GitHub Cloud Infrastructure"]
+        GitDataAPI["GitHub Git Data REST API"]
+        TreeBlob["Git Blobs & Trees Engine"]
+        RefUpdate["Refs/Heads/Main Commit Update"]
+        CronBot["GitHub Actions Runner (Cron Schedule)"]
+    end
+
+    subgraph LocalScript ["🖥️ Local Execution (Optional)"]
+        PS1["PowerShell Engine (.ps1)"]
+        SH["Bash Engine (.sh)"]
+        NodeJS["Node.js Engine (scripts/backdate.js)"]
+    end
+
+    UI --> MatrixEngine
+    PresetGen --> MatrixEngine
+    DateFilter --> MatrixEngine
+    MatrixEngine --> LocalStore
+
+    UI -- "1-Click Direct Token Push" --> GitDataAPI
+    GitDataAPI --> TreeBlob
+    TreeBlob --> RefUpdate
+
+    UI -- "Export Scripts" --> LocalScript
+    LocalScript -- "git push" --> RefUpdate
+
+    CronBot -- "Daily Midnight UTC Cron Sync" --> RefUpdate
+```
+
+---
+
+## 🛠️ What Was Used to Build It (Tech Stack Breakdown)
+
+### 1. **Frontend & Application Core**
+- **[React 18](https://react.dev/)**: Reactive UI state management for real-time canvas rendering, intensity selection, and date filters.
+- **[Vite 6](https://vitejs.dev/)**: Ultra-fast build engine and HMR development server.
+- **JavaScript ES Modules (ES6+)**: Clean, modern module structure across utilities and components.
+
+### 2. **Design System & Visual Aesthetics**
+- **Developer Cyberpunk & Glassmorphism Aesthetics**: Built with deep dark backgrounds (`#030712`), frosted glass overlays (`backdrop-filter: blur`), and emerald contribution glow accents (`#10b981` / `#34d399`).
+- **Typography**: Paired Google Fonts—[Inter](https://fonts.google.com/specimen/Inter) for clean UI labels and [JetBrains Mono](https://fonts.google.com/specimen/JetBrains+Mono) for mono dates, status logs, and code previews.
+- **CSS3 Design Tokens**: Fully custom CSS architecture with semantic tokens, custom properties (`var(--...)`), and smooth micro-animations (`src/index.css`).
+
+### 3. **GitHub Integration & API Execution**
+- **[@octokit/rest](https://github.com/octokit/rest.js)**: Official GitHub REST client used for client-side authentication, blob creation, tree generation, commit signing, and branch reference updates.
+- **Direct Git Low-Level Engine**: Programmatically constructs GitHub commit object chains with backdated author/committer timestamps without requiring a local Git installation.
+
+### 4. **Icons & UI Components**
+- **[Lucide React](https://lucide.dev/)**: Clean, minimal iconography (`Paintbrush`, `Calendar`, `Zap`, `SlidersHorizontal`, `ShieldCheck`).
+
+### 5. **Automation & Serverless Deployment**
+- **[GitHub Actions](https://github.com/features/actions)**: Native CI/CD cron pipeline (`.github/workflows/auto_commit.yml`) running scheduled Node.js scripts daily at 00:00 UTC.
+- **[Vercel](https://vercel.com/)**: Global edge CDN hosting configured with custom SPA rewrite rules (`vercel.json`).
+
+---
+
 ## ✨ Key Features
 
 - 🎨 **Interactive 52x7 Matrix Canvas**:
@@ -99,16 +168,6 @@ Open [http://localhost:5173](http://localhost:5173) in your browser to start pai
 
 ---
 
-## 🛠️ Built With
-
-- **Frontend Framework**: [React](https://react.dev/) + [Vite](https://vitejs.dev/)
-- **Icons**: [Lucide React](https://lucide.dev/)
-- **GitHub REST API**: [@octokit/rest](https://github.com/octokit/rest.js)
-- **Styling**: Custom Glassmorphic Cyberpunk CSS Engine
-- **CI/CD & Hosting**: [GitHub Actions](https://github.com/features/actions) & [Vercel](https://vercel.com/)
-
----
-
 ## 🔒 Security & Token Scope
 
 To use Direct Browser Push, create a [GitHub Personal Access Token (Classic)](https://github.com/settings/tokens):
@@ -123,4 +182,4 @@ Distributed under the MIT License. See `LICENSE` for more information.
 
 ---
 
-<p center>Made with ❤️ by <a href="https://github.com/realranjan">realranjan</a></p>
+<p align="center">Made with ❤️ by <a href="https://github.com/realranjan">realranjan</a></p>
