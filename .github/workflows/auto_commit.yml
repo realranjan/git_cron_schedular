@@ -1,0 +1,41 @@
+name: Auto Commit Cron Scheduler
+
+on:
+  schedule:
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  auto-commit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js Environment
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Execute Auto-Commit Script
+        env:
+          COMMIT_MODE: 'realistic'
+          CONTENT_TYPE: 'leetcode'
+          MIN_COMMITS: '1'
+          MAX_COMMITS: '4'
+          SKIP_CHANCE: '0.15'
+        run: node scripts/auto_commit.js
+
+      - name: Commit & Push Changes
+        env:
+          USER_EMAIL: ${{ secrets.COMMIT_EMAIL || 'your-github-email@gmail.com' }}
+          USER_NAME: ${{ github.actor }}
+        run: |
+          git config --global user.name "${USER_NAME}"
+          git config --global user.email "${USER_EMAIL}"
+          git add solutions/ notes/ data/ 2>/dev/null || true
+          git diff --quiet && git diff --staged --quiet || git commit -m "feat(solution): daily LeetCode algorithm solution"
+          git push origin main

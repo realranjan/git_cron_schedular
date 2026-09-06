@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
-import { Clock, Copy, Download, Check, ShieldCheck, Zap, Sliders, FileCode, Sparkles, Code2, BookOpen } from 'lucide-react';
+import { Clock, Copy, Download, Check, ShieldCheck, Sliders, FileCode, Sparkles, Code2, Mail } from 'lucide-react';
 
 export default function CronScheduler() {
   const [cronExpr, setCronExpr] = useState('0 0 * * *');
   const [customCron, setCustomCron] = useState('');
   const [branch, setBranch] = useState('main');
+  const [userEmail, setUserEmail] = useState(() => localStorage.getItem('gh_email') || 'your-github-email@gmail.com');
   const [realismMode, setRealismMode] = useState('realistic'); // 'realistic', 'consistent', 'heavy', 'fixed'
   const [contentType, setContentType] = useState('leetcode'); // 'leetcode', 'journal', 'log', 'hybrid'
   const [minCommits, setMinCommits] = useState(1);
@@ -85,9 +86,12 @@ jobs:
         run: node scripts/auto_commit.js
 
       - name: Commit & Push Changes
+        env:
+          USER_EMAIL: \${{ secrets.COMMIT_EMAIL || '${userEmail}' }}
+          USER_NAME: \${{ github.actor }}
         run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global user.name "\${USER_NAME}"
+          git config --global user.email "\${USER_EMAIL}"
           git add solutions/ notes/ data/ 2>/dev/null || true
           git diff --quiet && git diff --staged --quiet || git commit -m "${commitMsg}"
           git push origin ${branch}
@@ -109,16 +113,66 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const MODE = process.env.COMMIT_MODE || '${realismMode}';
-const CONTENT_TYPE = process.env.CONTENT_TYPE || '${contentType}';
 const MIN_COMMITS = parseInt(process.env.MIN_COMMITS || '${minCommits}', 10);
 const MAX_COMMITS = parseInt(process.env.MAX_COMMITS || '${maxCommits}', 10);
 const SKIP_CHANCE = parseFloat(process.env.SKIP_CHANCE || '${(skipChance / 100).toFixed(2)}');
+const CONTENT_TYPE = process.env.CONTENT_TYPE || '${contentType}';
 
 const LEETCODE_PROBLEMS = [
-  { id: '0001', name: 'two_sum', lang: 'js', title: 'Two Sum', diff: 'Easy', code: \`function twoSum(nums, target) {\\n  const map = new Map();\\n  for (let i = 0; i < nums.length; i++) {\\n    const diff = target - nums[i];\\n    if (map.has(diff)) return [map.get(diff), i];\\n    map.set(nums[i], i);\\n  }\\n  return [];\\n}\` },
-  { id: '0002', name: 'add_two_numbers', lang: 'py', title: 'Add Two Numbers', diff: 'Medium', code: \`def addTwoNumbers(l1, l2):\\n    dummy = ListNode(0)\\n    curr, carry = dummy, 0\\n    while l1 or l2 or carry:\\n        val = (l1.val if l1 else 0) + (l2.val if l2 else 0) + carry\\n        carry = val // 10\\n        curr.next = ListNode(val % 10)\\n        curr = curr.next\\n        l1 = l1.next if l1 else None\\n        l2 = l2.next if l2 else None\\n    return dummy.next\` },
-  { id: '0020', name: 'valid_parentheses', lang: 'js', title: 'Valid Parentheses', diff: 'Easy', code: \`function isValid(s) {\\n  const stack = [];\\n  const pairs = { ')': '(', '}': '{', ']': '[' };\\n  for (const char of s) {\\n    if (!pairs[char]) stack.push(char);\\n    else if (stack.pop() !== pairs[char]) return false;\\n  }\\n  return stack.length === 0;\\n}\` }
+  { id: '0001', name: 'two_sum', lang: 'js', title: 'Two Sum', diff: 'Easy', code: \`// LeetCode 0001: Two Sum\\nfunction twoSum(nums, target) {\\n  const map = new Map();\\n  for (let i = 0; i < nums.length; i++) {\\n    const diff = target - nums[i];\\n    if (map.has(diff)) return [map.get(diff), i];\\n    map.set(nums[i], i);\\n  }\\n  return [];\\n}\` },
+  { id: '0002', name: 'add_two_numbers', lang: 'py', title: 'Add Two Numbers', diff: 'Medium', code: \`# LeetCode 0002: Add Two Numbers\\ndef addTwoNumbers(l1, l2):\\n    dummy = ListNode(0)\\n    curr, carry = dummy, 0\\n    while l1 or l2 or carry:\\n        val = (l1.val if l1 else 0) + (l2.val if l2 else 0) + carry\\n        carry = val // 10\\n        curr.next = ListNode(val % 10)\\n        curr = curr.next\\n        l1 = l1.next if l1 else None\\n        l2 = l2.next if l2 else None\\n    return dummy.next\` },
+  { id: '0020', name: 'valid_parentheses', lang: 'js', title: 'Valid Parentheses', diff: 'Easy', code: \`// LeetCode 0020: Valid Parentheses\\nfunction isValid(s) {\\n  const stack = [];\\n  const pairs = { ')': '(', '}': '{', ']': '[' };\\n  for (const char of s) {\\n    if (!pairs[char]) stack.push(char);\\n    else if (stack.pop() !== pairs[char]) return false;\\n  }\\n  return stack.length === 0;\\n}\` },
+  { id: '0070', name: 'climbing_stairs', lang: 'js', title: 'Climbing Stairs', diff: 'Easy', code: \`// LeetCode 0070: Climbing Stairs\\nfunction climbStairs(n) {\\n  if (n <= 2) return n;\\n  let first = 1, second = 2;\\n  for (let i = 3; i <= n; i++) {\\n    const third = first + second;\\n    first = second;\\n    second = third;\\n  }\\n  return second;\\n}\` },
+  { id: '0121', name: 'best_time_to_buy_and_sell_stock', lang: 'py', title: 'Best Time to Buy & Sell Stock', diff: 'Easy', code: \`# LeetCode 0121: Best Time to Buy & Sell Stock\\ndef maxProfit(prices):\\n    min_price, max_profit = float('inf'), 0\\n    for price in prices:\\n        min_price = min(min_price, price)\\n        max_profit = max(max_profit, price - min_price)\\n    return max_profit\` }
 ];
+
+const JOURNAL_TOPICS = [
+  "System Architecture: Microservices vs Monolith Tradeoffs",
+  "React 19 Server Components and Suspense Deep Dive",
+  "Optimizing PostgreSQL Indexing and B-Trees",
+  "Redis Caching Strategies: Cache-Aside vs Write-Through",
+  "Docker Containerization & Multi-Stage Builds"
+];
+
+function generateContent(type, index, timestamp) {
+  if (type === 'hybrid') {
+    const choices = ['leetcode', 'journal', 'log'];
+    type = choices[Math.floor(Math.random() * choices.length)];
+  }
+
+  if (type === 'leetcode') {
+    const problem = LEETCODE_PROBLEMS[Math.floor(Math.random() * LEETCODE_PROBLEMS.length)];
+    const solutionsDir = path.join(__dirname, '../solutions');
+    if (!fs.existsSync(solutionsDir)) fs.mkdirSync(solutionsDir, { recursive: true });
+
+    const filename = \`\${problem.id}_\${problem.name}.\${problem.lang}\`;
+    const filePath = path.join(solutionsDir, filename);
+    const content = \`/**\\n * Problem: \${problem.title} (\${problem.diff})\\n * Last Updated: \${timestamp}\\n */\\n\\n\${problem.code}\\n\\n// Solution run #\${index + 1}\\n\`;
+
+    fs.writeFileSync(filePath, content);
+    console.log(\`📝 Generated LeetCode Solution: solutions/\${filename}\`);
+  } else if (type === 'journal') {
+    const topic = JOURNAL_TOPICS[Math.floor(Math.random() * JOURNAL_TOPICS.length)];
+    const notesDir = path.join(__dirname, '../notes');
+    if (!fs.existsSync(notesDir)) fs.mkdirSync(notesDir, { recursive: true });
+
+    const dateStr = timestamp.split('T')[0];
+    const filename = \`\${dateStr}_note_\${index + 1}.md\`;
+    const filePath = path.join(notesDir, filename);
+    const content = \`# Technical Learning Log — \${dateStr}\\n\\n## Topic: \${topic}\\n\\n- **Timestamp**: \${timestamp}\\n- **Status**: Completed Daily Study\\n\`;
+
+    fs.writeFileSync(filePath, content);
+    console.log(\`📖 Generated Dev Note: notes/\${filename}\`);
+  } else {
+    const logFile = path.join(__dirname, '../data/activity_log.txt');
+    const dataDir = path.dirname(logFile);
+    if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
+
+    const logEntry = \`[CRON RUN \${timestamp} #\${index + 1}] — "Consistency is key."\\n\`;
+    fs.appendFileSync(logFile, logEntry);
+    console.log(\`✅ Appended to activity log: data/activity_log.txt\`);
+  }
+}
 
 function runScheduledCommit() {
   if (MODE === 'realistic' && Math.random() < SKIP_CHANCE) {
@@ -127,7 +181,13 @@ function runScheduledCommit() {
   }
 
   const commitCount = Math.floor(Math.random() * (MAX_COMMITS - MIN_COMMITS + 1)) + MIN_COMMITS;
-  console.log("🎉 Executed " + commitCount + " commits for Content Type: " + CONTENT_TYPE);
+  const now = new Date().toISOString();
+
+  for (let i = 0; i < commitCount; i++) {
+    generateContent(CONTENT_TYPE, i, now);
+  }
+
+  console.log(\`🎉 Finished executing \${commitCount} automated commits for type: \${CONTENT_TYPE}\`);
 }
 
 runScheduledCommit();
@@ -231,21 +291,21 @@ runScheduledCommit();
           </select>
         </div>
 
-        {/* Realism & Intensity Mode */}
+        {/* Primary GitHub Email for Profile Credit */}
         <div className="form-group" style={{ margin: 0 }}>
           <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-            <Sparkles size={14} style={{ color: 'var(--gh-level-4)' }} /> Commit Realism & Intensity
+            <Mail size={14} style={{ color: 'var(--gh-level-4)' }} /> GitHub Email (For Graph Credit)
           </label>
-          <select
+          <input
+            type="email"
             className="form-input"
-            value={realismMode}
-            onChange={(e) => handleRealismChange(e.target.value)}
-          >
-            <option value="realistic">🌱 Realistic Human Developer (1-4 commits + rest days)</option>
-            <option value="consistent">🔥 Consistent Contributor (2-5 commits daily)</option>
-            <option value="heavy">🚀 Heavy Streak Builder (5-10 commits daily)</option>
-            <option value="fixed">🎯 Fixed 1 Commit Per Trigger</option>
-          </select>
+            value={userEmail}
+            onChange={(e) => {
+              setUserEmail(e.target.value);
+              localStorage.setItem('gh_email', e.target.value);
+            }}
+            placeholder="your-github-email@gmail.com"
+          />
         </div>
 
         {/* Target Branch */}
@@ -267,6 +327,20 @@ runScheduledCommit();
           <Sliders size={14} /> Realism Fine-Tuning & Variable Parameters
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '0.85rem' }}>
+          <div>
+            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Commit Realism Mode:</span>
+            <select
+              className="form-input"
+              style={{ padding: '0.25rem 0.5rem', fontSize: '0.8rem', marginTop: '4px' }}
+              value={realismMode}
+              onChange={(e) => handleRealismChange(e.target.value)}
+            >
+              <option value="realistic">🌱 Realistic (1-4 commits + rest days)</option>
+              <option value="consistent">🔥 Consistent (2-5 commits daily)</option>
+              <option value="heavy">🚀 Heavy (5-10 commits daily)</option>
+              <option value="fixed">🎯 Fixed 1 Commit Per Trigger</option>
+            </select>
+          </div>
           <div>
             <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Min Commits / Run:</span>
             <input
@@ -359,7 +433,7 @@ runScheduledCommit();
       </div>
 
       <div style={{ marginTop: '1rem', fontSize: '0.8rem', color: 'var(--text-dim)', background: '#010409', padding: '0.75rem', borderRadius: '6px', border: '1px solid var(--border-color)' }}>
-        📁 <strong>Setup Instruction:</strong> Commit <code style={{ color: 'var(--gh-level-4)' }}>.github/workflows/auto_commit.yml</code> and <code style={{ color: 'var(--gh-level-4)' }}>scripts/auto_commit.js</code> to your GitHub repository to activate this custom cron schedule!
+        📁 <strong>Setup Instruction:</strong> Copy <code style={{ color: 'var(--gh-level-4)' }}>.github/workflows/auto_commit.yml</code> and <code style={{ color: 'var(--gh-level-4)' }}>scripts/auto_commit.js</code> into any new repository to activate this automated cron bot!
       </div>
     </div>
   );
