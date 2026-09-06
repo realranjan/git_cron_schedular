@@ -25,7 +25,13 @@ export default function ExecutionModal({ matrix, isOpen, onClose }) {
   // GitHub Token & Credentials State
   const [token, setToken] = useState(() => localStorage.getItem('gh_pat') || '');
   const [owner, setOwner] = useState(() => localStorage.getItem('gh_owner') || 'realranjan');
-  const [repo, setRepo] = useState(() => localStorage.getItem('gh_repo') || 'git_cron_schedular');
+  const [repo, setRepo] = useState(() => {
+    const stored = localStorage.getItem('gh_repo');
+    if (!stored || stored === 'cron_schedular' || stored === 'git_crron_schedular') {
+      return 'git_cron_schedular';
+    }
+    return stored;
+  });
   const [branch, setBranch] = useState(() => localStorage.getItem('gh_branch') || 'main');
   const [showToken, setShowToken] = useState(false);
   const [remember, setRemember] = useState(true);

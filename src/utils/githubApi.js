@@ -26,7 +26,7 @@ export async function testGitHubToken(rawToken, rawOwner, rawRepo) {
           return {
             success: false,
             username: user.login,
-            error: `Repository '${owner}/${repo}' not found (404).\n\nCheck:\n1. Is the repository name spelled correctly? (e.g. 'git_crron_schedular')\n2. If the repository is Private, ensure your Personal Access Token has the 'repo' scope permission enabled!`
+            error: `Repository '${owner}/${repo}' not found (404).\n\nCheck:\n1. Is the repository name spelled correctly? (e.g. 'git_cron_schedular')\n2. If the repository is Private, ensure your Personal Access Token has the 'repo' scope permission enabled!`
           };
         }
         throw repoErr;
