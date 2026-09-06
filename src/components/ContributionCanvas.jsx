@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { getMonthLabels, extractCommitsFromMatrix, applyDateRangeFilter } from '../utils/matrixUtils';
+import { getMonthLabels, extractCommitsFromMatrix, applyDateRangeFilter, createEmptyMatrix } from '../utils/matrixUtils';
 import {
   Eraser,
   Paintbrush,
@@ -17,7 +17,8 @@ export default function ContributionCanvas({ matrix, setMatrix, activeLevel, set
   const [isMouseDown, setIsMouseDown] = useState(false);
   const [hoveredCell, setHoveredCell] = useState(null);
 
-  // Date Range & Filter States
+  // Year & Filter States
+  const [selectedYear, setSelectedYear] = useState('rolling'); // 'rolling', '2026', '2025', '2024', '2023'
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [selectedDays, setSelectedDays] = useState([0, 1, 2, 3, 4, 5, 6]); // 0=Sun, 6=Sat
@@ -35,6 +36,18 @@ export default function ContributionCanvas({ matrix, setMatrix, activeLevel, set
     { label: 'Fri', value: 5 },
     { label: 'Sat', value: 6 }
   ];
+
+  const handleYearChange = (year) => {
+    setSelectedYear(year);
+    setMatrix(createEmptyMatrix(year));
+    if (year !== 'rolling') {
+      setStartDate(`${year}-01-01`);
+      setEndDate(`${year}-12-31`);
+    } else {
+      setStartDate('');
+      setEndDate('');
+    }
+  };
 
   const handleCellMouseDown = (weekIndex, dayIndex) => {
     setIsMouseDown(true);
@@ -105,7 +118,7 @@ export default function ContributionCanvas({ matrix, setMatrix, activeLevel, set
     });
   };
 
-  // Date Range Quick Preset Handlers
+  // Quick Preset Handlers
   const handleQuickPreset = (type) => {
     const today = new Date();
     const todayStr = today.toISOString().split('T')[0];
@@ -122,13 +135,20 @@ export default function ContributionCanvas({ matrix, setMatrix, activeLevel, set
       setStartDate(past90.toISOString().split('T')[0]);
       setEndDate(todayStr);
       setSelectedDays([0, 1, 2, 3, 4, 5, 6]);
+    } else if (type === 'year2026') {
+      handleYearChange('2026');
+    } else if (type === 'year2025') {
+      handleYearChange('2025');
+    } else if (type === 'year2024') {
+      handleYearChange('2024');
+    } else if (type === 'year2023') {
+      handleYearChange('2023');
     } else if (type === 'weekdays') {
       setSelectedDays([1, 2, 3, 4, 5]);
     } else if (type === 'weekends') {
       setSelectedDays([0, 6]);
     } else if (type === 'reset') {
-      setStartDate('');
-      setEndDate('');
+      handleYearChange('rolling');
       setSelectedDays([0, 1, 2, 3, 4, 5, 6]);
       setSearchQuery('');
     }
@@ -164,7 +184,30 @@ export default function ContributionCanvas({ matrix, setMatrix, activeLevel, set
           <span>Contribution Matrix Editor</span>
         </div>
 
-        <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', alignItems: 'center' }}>
+          {/* Yearly View Switcher */}
+          <div style={{ display: 'flex', background: 'rgba(3, 7, 18, 0.8)', border: '1px solid var(--border-color)', borderRadius: '6px', padding: '2px' }}>
+            {['rolling', '2026', '2025', '2024', '2023'].map(yr => (
+              <button
+                key={yr}
+                onClick={() => handleYearChange(yr)}
+                style={{
+                  background: selectedYear === yr ? 'var(--gh-level-4)' : 'transparent',
+                  color: selectedYear === yr ? '#070a0f' : 'var(--text-muted)',
+                  border: 'none',
+                  borderRadius: '4px',
+                  padding: '0.25rem 0.5rem',
+                  fontSize: '0.7rem',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease'
+                }}
+              >
+                {yr === 'rolling' ? 'Past 365 Days' : yr}
+              </button>
+            ))}
+          </div>
+
           <button
             className={`btn ${showFilterPanel ? 'btn-primary' : 'btn-outline'}`}
             style={{ padding: '0.4rem 0.75rem', fontSize: '0.75rem' }}
@@ -197,7 +240,7 @@ export default function ContributionCanvas({ matrix, setMatrix, activeLevel, set
           marginBottom: '1.25rem'
         }}>
           <div style={{ fontWeight: 700, fontSize: '0.85rem', color: 'var(--gh-level-4)', marginBottom: '0.85rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-            <Calendar size={16} /> Filter Commits by Date Range & Days of Week
+            <Calendar size={16} /> Filter Commits by Year, Date Range & Days of Week
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1rem', marginBottom: '1rem' }}>
@@ -239,11 +282,15 @@ export default function ContributionCanvas({ matrix, setMatrix, activeLevel, set
           {/* Quick Presets & Day Checkboxes */}
           <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem', marginBottom: '1rem' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
-              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>Presets:</span>
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>Year & Presets:</span>
+              <button className="btn btn-outline" style={{ padding: '0.25rem 0.5rem', fontSize: '0.7rem' }} onClick={() => handleQuickPreset('year2026')}>Full 2026</button>
+              <button className="btn btn-outline" style={{ padding: '0.25rem 0.5rem', fontSize: '0.7rem' }} onClick={() => handleQuickPreset('year2025')}>Full 2025</button>
+              <button className="btn btn-outline" style={{ padding: '0.25rem 0.5rem', fontSize: '0.7rem' }} onClick={() => handleQuickPreset('year2024')}>Full 2024</button>
+              <button className="btn btn-outline" style={{ padding: '0.25rem 0.5rem', fontSize: '0.7rem' }} onClick={() => handleQuickPreset('year2023')}>Full 2023</button>
               <button className="btn btn-outline" style={{ padding: '0.25rem 0.5rem', fontSize: '0.7rem' }} onClick={() => handleQuickPreset('last30')}>Last 30 Days</button>
               <button className="btn btn-outline" style={{ padding: '0.25rem 0.5rem', fontSize: '0.7rem' }} onClick={() => handleQuickPreset('last90')}>Last 90 Days</button>
-              <button className="btn btn-outline" style={{ padding: '0.25rem 0.5rem', fontSize: '0.7rem' }} onClick={() => handleQuickPreset('weekdays')}>Weekdays Only</button>
-              <button className="btn btn-outline" style={{ padding: '0.25rem 0.5rem', fontSize: '0.7rem' }} onClick={() => handleQuickPreset('weekends')}>Weekends Only</button>
+              <button className="btn btn-outline" style={{ padding: '0.25rem 0.5rem', fontSize: '0.7rem' }} onClick={() => handleQuickPreset('weekdays')}>Weekdays</button>
+              <button className="btn btn-outline" style={{ padding: '0.25rem 0.5rem', fontSize: '0.7rem' }} onClick={() => handleQuickPreset('weekends')}>Weekends</button>
               <button className="btn btn-outline" style={{ padding: '0.25rem 0.5rem', fontSize: '0.7rem' }} onClick={() => handleQuickPreset('reset')}>Reset Filters</button>
             </div>
 
@@ -355,7 +402,7 @@ export default function ContributionCanvas({ matrix, setMatrix, activeLevel, set
               <strong style={{ color: 'var(--text-main)' }}>{hoveredCell.dateString}</strong>: {hoveredCell.level === 0 ? 'No commits' : `${hoveredCell.level * 3} commits (Level ${hoveredCell.level})`}
             </span>
           ) : (
-            <span>Drag mouse to paint on 365-day grid</span>
+            <span>Viewing: <strong style={{ color: 'var(--gh-level-4)' }}>{selectedYear === 'rolling' ? 'Past 365 Days' : `Year ${selectedYear}`}</strong> | Drag mouse to paint grid</span>
           )}
         </div>
       </div>

@@ -186,23 +186,40 @@ export const PIXEL_FONT = {
   ]
 };
 
-// Return dates mapping for 53 weeks (Sunday-Saturday)
-export function createEmptyMatrix() {
+// Return dates mapping for 53 weeks or specific calendar year
+export function createEmptyMatrix(targetYear = null) {
   const matrix = [];
   const today = new Date();
-  
-  // Find last Saturday (end of current week on GitHub)
-  const currentDayOfWeek = today.getDay(); // 0 = Sun, 6 = Sat
-  const endDate = new Date(today);
-  endDate.setDate(today.getDate() + (6 - currentDayOfWeek));
+  let startDate, endDate;
 
-  // Go back 52 full weeks (53 weeks total including current week)
-  const startDate = new Date(endDate);
-  startDate.setDate(endDate.getDate() - (53 * 7 - 1));
+  if (targetYear && targetYear !== 'rolling') {
+    const yr = parseInt(targetYear, 10);
+    // Start on Jan 1 of targetYear, find previous Sunday
+    const jan1 = new Date(yr, 0, 1);
+    const dayOfWeek = jan1.getDay(); // 0 = Sun
+    startDate = new Date(jan1);
+    startDate.setDate(jan1.getDate() - dayOfWeek);
+
+    // End on Dec 31 of targetYear, find next Saturday
+    const dec31 = new Date(yr, 11, 31);
+    const decDayOfWeek = dec31.getDay();
+    endDate = new Date(dec31);
+    endDate.setDate(dec31.getDate() + (6 - decDayOfWeek));
+  } else {
+    // Default: Past 52 weeks up to current week
+    const currentDayOfWeek = today.getDay(); // 0 = Sun, 6 = Sat
+    endDate = new Date(today);
+    endDate.setDate(today.getDate() + (6 - currentDayOfWeek));
+
+    startDate = new Date(endDate);
+    startDate.setDate(endDate.getDate() - (53 * 7 - 1));
+  }
 
   let tempDate = new Date(startDate);
+  const totalDays = Math.round((endDate - startDate) / (1000 * 60 * 60 * 24)) + 1;
+  const totalWeeks = Math.ceil(totalDays / 7);
 
-  for (let week = 0; week < 53; week++) {
+  for (let week = 0; week < totalWeeks; week++) {
     const weekDays = [];
     for (let day = 0; day < 7; day++) {
       const dateStr = tempDate.toISOString().split('T')[0];
