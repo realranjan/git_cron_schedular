@@ -15,6 +15,17 @@ export async function testGitHubToken(rawToken, rawOwner, rawRepo) {
   try {
     const octokit = new Octokit({ auth: token });
     const { data: user } = await octokit.rest.users.getAuthenticated();
+
+    let primaryEmail = user.email;
+    if (!primaryEmail) {
+      try {
+        const { data: emails } = await octokit.rest.users.listEmailsForAuthenticatedUser();
+        const verifiedPrimary = emails.find(e => e.primary && e.verified) || emails.find(e => e.verified);
+        if (verifiedPrimary) primaryEmail = verifiedPrimary.email;
+      } catch {
+        // scope missing or not granted
+      }
+    }
     
     let repository = null;
     if (owner && repo) {
@@ -26,6 +37,7 @@ export async function testGitHubToken(rawToken, rawOwner, rawRepo) {
           return {
             success: false,
             username: user.login,
+            email: primaryEmail,
             error: `Repository '${owner}/${repo}' not found (404).\n\nCheck:\n1. Is the repository name spelled correctly? (e.g. 'git_cron_schedular')\n2. If the repository is Private, ensure your Personal Access Token has the 'repo' scope permission enabled!`
           };
         }
@@ -36,6 +48,7 @@ export async function testGitHubToken(rawToken, rawOwner, rawRepo) {
     return {
       success: true,
       username: user.login,
+      email: primaryEmail,
       avatarUrl: user.avatar_url,
       repository: repository ? repository.full_name : null,
       defaultBranch: repository ? repository.default_branch : 'main'
@@ -59,6 +72,7 @@ export async function executeDirectApiCommits({
   owner: rawOwner,
   repo: rawRepo,
   branch = 'main',
+  authorEmail: rawAuthorEmail,
   commits,
   onProgress
 }) {
@@ -66,6 +80,7 @@ export async function executeDirectApiCommits({
   const owner = (rawOwner || '').trim();
   const repo = (rawRepo || '').trim();
   const targetBranch = (branch || 'main').trim();
+  const customAuthorEmail = (rawAuthorEmail || '').trim();
 
   const octokit = new Octokit({ auth: token });
 
@@ -94,7 +109,21 @@ export async function executeDirectApiCommits({
 
     const { data: user } = await octokit.rest.users.getAuthenticated();
     const committerName = user.name || user.login;
-    const committerEmail = user.email || `${user.login}@users.noreply.github.com`;
+    
+    // Resolve email
+    let resolvedEmail = customAuthorEmail || user.email;
+    if (!resolvedEmail) {
+      try {
+        const { data: emails } = await octokit.rest.users.listEmailsForAuthenticatedUser();
+        const verifiedPrimary = emails.find(e => e.primary && e.verified) || emails.find(e => e.verified);
+        if (verifiedPrimary) resolvedEmail = verifiedPrimary.email;
+      } catch {
+        // scope missing
+      }
+    }
+    if (!resolvedEmail) {
+      resolvedEmail = `${user.login}@users.noreply.github.com`;
+    }
 
     let totalCreated = 0;
     const totalCommitsToMake = commits.reduce((a, b) => a + b.count, 0);
@@ -102,8 +131,11 @@ export async function executeDirectApiCommits({
     onProgress({
       current: 0,
       total: totalCommitsToMake,
-      message: `Target branch '${targetBranch}' ready. Starting commit generation...`,
-      logs: [`HEAD commit SHA: ${currentCommitSha.substring(0, 7)}`]
+      message: `Target branch '${targetBranch}' ready (Commit Email: ${resolvedEmail}). Starting commit generation...`,
+      logs: [
+        `HEAD commit SHA: ${currentCommitSha.substring(0, 7)}`,
+        `Author Email: ${resolvedEmail}`
+      ]
     });
 
     let currentLogText = `GitGraph Studio Direct API Sync\nStarted: ${new Date().toISOString()}\n\n`;
@@ -150,12 +182,12 @@ export async function executeDirectApiCommits({
           parents: [currentCommitSha],
           author: {
             name: committerName,
-            email: committerEmail,
+            email: resolvedEmail,
             date: dateIso
           },
           committer: {
             name: committerName,
-            email: committerEmail,
+            email: resolvedEmail,
             date: dateIso
           }
         });
@@ -195,7 +227,11 @@ export async function executeDirectApiCommits({
       total: totalCommitsToMake,
       message: '✅ SUCCESS! All commits pushed directly to GitHub!',
       logs: [
-        `🎉 Successfully created and pushed ${totalCommitsToMake} backdated commits directly to GitHub!`
+        `🎉 Successfully created and pushed ${totalCommitsToMake} backdated commits directly to GitHub!`,
+        `💡 NOTE: If GitHub hasn't turned your graph green yet, verify:`,
+        `   1. Email: Make sure '${resolvedEmail}' is listed under your GitHub Settings -> Emails.`,
+        `   2. Private Repos: If this repo is Private, turn ON "Include private contributions" in your GitHub Profile settings.`,
+        `   3. Cache: GitHub contribution graph updates can take 5-10 minutes to re-index.`
       ],
       completed: true
     });

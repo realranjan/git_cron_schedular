@@ -15,7 +15,9 @@ import {
   EyeOff,
   Zap,
   CheckCircle2,
-  AlertCircle
+  AlertCircle,
+  HelpCircle,
+  Mail
 } from 'lucide-react';
 
 export default function ExecutionModal({ matrix, isOpen, onClose }) {
@@ -33,8 +35,10 @@ export default function ExecutionModal({ matrix, isOpen, onClose }) {
     return stored;
   });
   const [branch, setBranch] = useState(() => localStorage.getItem('gh_branch') || 'main');
+  const [authorEmail, setAuthorEmail] = useState(() => localStorage.getItem('gh_email') || '');
   const [showToken, setShowToken] = useState(false);
   const [remember, setRemember] = useState(true);
+  const [showTroubleshoot, setShowTroubleshoot] = useState(false);
 
   // Verification & Execution state
   const [verifying, setVerifying] = useState(false);
@@ -52,8 +56,9 @@ export default function ExecutionModal({ matrix, isOpen, onClose }) {
       if (owner) localStorage.setItem('gh_owner', owner);
       if (repo) localStorage.setItem('gh_repo', repo);
       if (branch) localStorage.setItem('gh_branch', branch);
+      if (authorEmail) localStorage.setItem('gh_email', authorEmail);
     }
-  }, [token, owner, repo, branch, remember]);
+  }, [token, owner, repo, branch, authorEmail, remember]);
 
   if (!isOpen) return null;
 
@@ -99,6 +104,9 @@ export default function ExecutionModal({ matrix, isOpen, onClose }) {
     const res = await testGitHubToken(token, owner, repo);
     setVerifying(false);
     setVerifyStatus(res);
+    if (res.success && res.email && !authorEmail) {
+      setAuthorEmail(res.email);
+    }
   };
 
   const handleDirectPush = async () => {
@@ -115,6 +123,7 @@ export default function ExecutionModal({ matrix, isOpen, onClose }) {
       owner,
       repo,
       branch,
+      authorEmail,
       commits,
       onProgress: (p) => {
         setProgress(p);
@@ -142,7 +151,7 @@ export default function ExecutionModal({ matrix, isOpen, onClose }) {
       zIndex: 1000,
       padding: '1rem'
     }}>
-      <div className="panel-card" style={{ width: '100%', maxWidth: '780px', maxHeight: '92vh', overflowY: 'auto' }}>
+      <div className="panel-card" style={{ width: '100%', maxWidth: '820px', maxHeight: '92vh', overflowY: 'auto' }}>
         <div className="panel-title">
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
             <Zap size={22} style={{ color: 'var(--gh-level-4)' }} />
@@ -192,7 +201,7 @@ export default function ExecutionModal({ matrix, isOpen, onClose }) {
             <div style={{ background: 'rgba(52, 211, 153, 0.08)', border: '1px solid rgba(52, 211, 153, 0.25)', padding: '0.85rem 1rem', borderRadius: '10px', marginBottom: '1.25rem', fontSize: '0.825rem', display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
               <ShieldCheck size={20} style={{ color: 'var(--gh-level-4)', flexShrink: 0 }} />
               <div>
-                <strong>Direct API Execution</strong>: Enter your GitHub Personal Access Token (PAT) to commit directly from the browser! No local git installation or shell command execution required.
+                <strong>Direct API Execution</strong>: Commit backdated activity directly from the browser!
               </div>
             </div>
 
@@ -215,12 +224,12 @@ export default function ExecutionModal({ matrix, isOpen, onClose }) {
                   className="form-input"
                   value={repo}
                   onChange={(e) => setRepo(e.target.value)}
-                  placeholder="e.g. git_cron_job"
+                  placeholder="e.g. git_cron_schedular"
                 />
               </div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 140px', gap: '1rem', marginBottom: '1rem' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 140px', gap: '1rem', marginBottom: '1rem' }}>
               <div className="form-group">
                 <label className="form-label">Personal Access Token (PAT)</label>
                 <div style={{ position: 'relative' }}>
@@ -240,6 +249,19 @@ export default function ExecutionModal({ matrix, isOpen, onClose }) {
                     {showToken ? <EyeOff size={16} /> : <Eye size={16} />}
                   </button>
                 </div>
+              </div>
+
+              <div className="form-group">
+                <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                  <Mail size={13} style={{ color: 'var(--gh-level-4)' }} /> Primary GitHub Email
+                </label>
+                <input
+                  type="email"
+                  className="form-input"
+                  value={authorEmail}
+                  onChange={(e) => setAuthorEmail(e.target.value)}
+                  placeholder="e.g. yourname@gmail.com"
+                />
               </div>
 
               <div className="form-group">
@@ -266,11 +288,19 @@ export default function ExecutionModal({ matrix, isOpen, onClose }) {
                 {verifying ? 'Verifying...' : 'Verify Token & Repo'}
               </button>
 
+              <button
+                type="button"
+                style={{ background: 'none', border: 'none', color: 'var(--gh-level-4)', cursor: 'pointer', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}
+                onClick={() => setShowTroubleshoot(!showTroubleshoot)}
+              >
+                <HelpCircle size={14} /> Why aren't my pushed commits green?
+              </button>
+
               {verifyStatus && (
                 <div style={{ fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
                   {verifyStatus.success ? (
                     <span style={{ color: 'var(--gh-level-4)', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-                      <CheckCircle2 size={15} /> Verified user @{verifyStatus.username}
+                      <CheckCircle2 size={15} /> Verified @{verifyStatus.username}
                     </span>
                   ) : (
                     <span style={{ color: '#f85149', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
@@ -280,6 +310,21 @@ export default function ExecutionModal({ matrix, isOpen, onClose }) {
                 </div>
               )}
             </div>
+
+            {/* Troubleshooting Explanatory Callout */}
+            {showTroubleshoot && (
+              <div style={{ background: 'rgba(3, 7, 18, 0.8)', border: '1px solid var(--gh-level-4)', padding: '0.85rem 1rem', borderRadius: '8px', marginBottom: '1.25rem', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                <div style={{ fontWeight: 700, color: 'var(--gh-level-4)', marginBottom: '0.4rem' }}>
+                  💡 Why commits might not show as green on your GitHub profile:
+                </div>
+                <ol style={{ marginLeft: '1.2rem', lineHeight: '1.5' }}>
+                  <li><strong>Email Matching:</strong> The Primary GitHub Email above MUST match an email address registered in your <a href="https://github.com/settings/emails" target="_blank" rel="noreferrer" style={{ color: 'var(--gh-level-4)' }}>GitHub Email Settings</a>.</li>
+                  <li><strong>Private Repository Settings:</strong> If your repository is Private, go to your GitHub profile &rarr; Click <em>Contribution settings</em> (above graph) &rarr; Check <em>"Include private contributions on my profile"</em>.</li>
+                  <li><strong>Default Branch:</strong> Commits are only counted if pushed to the default branch (e.g. <code>main</code>).</li>
+                  <li><strong>GitHub Cache Delay:</strong> GitHub profile graphs take 5-10 minutes to process and re-index backdated commits.</li>
+                </ol>
+              </div>
+            )}
 
             {/* Execution Controls */}
             <button
