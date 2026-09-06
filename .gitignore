@@ -22,3 +22,7 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# AI Assistant Workspace Folders
+.agents/
+.gemini/
